@@ -9,6 +9,14 @@ turning unstructured research materials into a submission-ready LaTeX paper.
 > *PaperOrchestra: A Multi-Agent Framework for Automated AI Research Paper Writing.*
 > arXiv:2604.05018, 2026. <https://arxiv.org/pdf/2604.05018>
 
+<p align="center">
+  <a href="https://arxiv.org/pdf/2604.05018">
+    <img src="docs/assets/paper-preview.png" alt="PaperOrchestra paper — first page preview" width="420"/>
+  </a>
+  <br/>
+  <em>Click to read the paper on arXiv</em>
+</p>
+
 ## Why this exists
 
 The paper defines a five-agent pipeline (Outline → Plotting ∥ Literature Review
