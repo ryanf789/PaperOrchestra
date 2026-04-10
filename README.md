@@ -113,38 +113,24 @@ web search tool.  Two optional integrations improve throughput or coverage:
   See `skills/literature-review-agent/references/s2-api-cookbook.md` for
   endpoint details, field reference, and error-handling notes.
 
-- **[PaperBanana](https://github.com/dwzhu-pku/PaperBanana)** — the
-  figure-generation backbone the PaperOrchestra paper actually uses (§4
-  Step 2, Figure 1 caption: "This figure was generated using PaperBanana").
-  It runs a Retriever → Planner → Stylist → Visualizer → Critic multi-agent
-  loop that grounds diagram style in real paper examples.  The bundled
-  `scripts/paperbanana_render.py` wrapper converts the plotting-agent's
-  figure spec to PaperBanana's input format, runs the pipeline, and saves a
-  300-DPI PNG.  It is **opt-in** and falls back to the matplotlib renderer
-  (exit code 2) if `PAPERBANANA_PATH` is unset.  Especially recommended for
-  `plot_type == "diagram"` figures.
+- **[PaperBanana](https://github.com/dwzhu-pku/PaperBanana)** (Zhu et al.,
+  2026) — the figure-generation backbone used by PaperOrchestra for Step 2.
+  Runs a Retriever → Planner → Stylist → Visualizer → Critic loop that
+  produces publication-quality diagrams grounded in real paper examples.
+  Requires a **free [Gemini API key](https://aistudio.google.com/)**.
 
   ```bash
   git clone https://github.com/dwzhu-pku/PaperBanana
-  cd PaperBanana && uv pip install -r requirements.txt
+  cd PaperBanana
+  pip install -r requirements.txt
   cp configs/model_config.template.yaml configs/model_config.yaml
-  # fill in google_api_key or openrouter_api_key in model_config.yaml
+  # open model_config.yaml and paste your Gemini key into api_keys.google_api_key
   export PAPERBANANA_PATH="/path/to/PaperBanana"
-
-  # verify setup
-  python skills/plotting-agent/scripts/paperbanana_render.py --check-backend
-
-  # render one diagram figure
-  python skills/plotting-agent/scripts/paperbanana_render.py \
-      --figure-id fig_overview \
-      --caption   "Figure 1: Overview of our proposed framework." \
-      --content-file workspace/inputs/idea.md \
-      --task diagram --aspect-ratio 16:9 \
-      --out workspace/figures/fig_overview.png
   ```
 
-  See `skills/plotting-agent/references/paperbanana-cookbook.md` for the
-  full recipe, pipeline modes, cost notes, and attribution.
+  That's it. Set `PAPERBANANA_PATH` and the plotting-agent uses PaperBanana
+  automatically for diagram figures; falls back to matplotlib if unset.
+  See `skills/plotting-agent/references/paperbanana-cookbook.md` for details.
 
 - **[Exa](https://exa.ai)** — research-paper-focused search engine. The
   literature-review-agent can use it as a Phase 1 candidate-discovery
@@ -202,7 +188,8 @@ On top of the paper, this repo adds a few deterministic hardening scripts (orpha
 
 ## Citation
 
-If you use this skill pack, please cite the paper:
+If you use this skill pack, please cite the PaperOrchestra paper. If you use
+the PaperBanana plotting backbone, cite that too:
 
 ```bibtex
 @article{song2026paperorchestra,
@@ -210,7 +197,15 @@ If you use this skill pack, please cite the paper:
   author={Song, Yiwen and Song, Yale and Pfister, Tomas and Yoon, Jinsung},
   journal={arXiv preprint arXiv:2604.05018},
   year={2026},
-  url={https://arxiv.org/pdf/2604.05018}
+  url={https://arxiv.org/abs/2604.05018}
+}
+
+@article{zhu2026paperbanana,
+  title={{PaperBanana}: Automating Academic Illustration for {AI} Scientists},
+  author={Zhu, Dawei and Meng, Rui and Song, Yale and Wei, Xiyu and Li, Sujian and Pfister, Tomas and Yoon, Jinsung},
+  journal={arXiv preprint arXiv:2601.23265},
+  year={2026},
+  url={https://arxiv.org/abs/2601.23265}
 }
 ```
 

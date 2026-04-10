@@ -53,55 +53,33 @@ finally caption.
    conceptual entities the figure needs. For `experimental_log.md`, the
    `## 2. Raw Numeric Data` section contains markdown tables.
 
-4. **Render**: choose a backend based on availability.
+4. **Render**:
 
-   #### Option A — PaperBanana (optional, recommended for diagrams)
+   **If `PAPERBANANA_PATH` is set** — use the PaperBanana backbone
+   (Zhu et al., 2026). It runs a Retriever → Planner → Stylist → Visualizer
+   → Critic loop and is especially good for `plot_type == "diagram"`.
+   See `references/paperbanana-cookbook.md` for setup (needs a Gemini API key).
 
-   [PaperBanana](https://github.com/dwzhu-pku/PaperBanana) is the backbone
-   the PaperOrchestra paper actually uses (§4 Step 2). It runs a
-   Retriever → Planner → Stylist → Visualizer → Critic loop that produces
-   high-quality diagrams grounded in real paper examples. **Especially good
-   for `plot_type == "diagram"` (Figure-1-style overviews).**
-
-   Check availability before starting the pipeline:
-   ```bash
-   python skills/plotting-agent/scripts/paperbanana_render.py --check-backend
-   # exit 0 → available; exit 2 → not configured, use Option B
-   ```
-
-   If available, call it per figure:
    ```bash
    python skills/plotting-agent/scripts/paperbanana_render.py \
        --figure-id <figure_id> \
        --caption   "<objective from figure spec>" \
-       --content-file workspace/inputs/idea.md \   # or experimental_log.md
+       --content-file workspace/inputs/idea.md \
        --task      <diagram|plot> \
        --aspect-ratio <aspect_ratio> \
        --out       workspace/figures/<figure_id>.png
-   # exit 0 → PNG saved; exit 2 → fall back to Option B
    ```
 
-   See `references/paperbanana-cookbook.md` for setup, env vars, cost notes,
-   and attribution.
-
-   #### Option B — matplotlib (built-in fallback)
-
-   Write a matplotlib script and execute it via your Bash tool. The script
-   must:
-   - Apply the global academic style from `chart-patterns.md`.
-   - Use the pixel dimensions for the requested aspect ratio (look up in
-     `references/aspect-ratios.md`).
-   - Save to `workspace/figures/<figure_id>.png` at 300 DPI.
-   - Call `plt.close()` after `savefig`.
-
-   Or use the bundled helper directly:
+   **Otherwise** — write a matplotlib script and run it via your Bash tool,
+   or use the bundled helper:
    ```bash
    python skills/plotting-agent/scripts/render_matplotlib.py \
        --spec spec.json \
        --out workspace/figures/<figure_id>.png
    ```
-   See the script for the spec JSON format. The helper handles aspect-ratio
-   sizing and applies the academic style for you.
+   The script must apply the academic style from `chart-patterns.md`, use the
+   correct pixel size from `aspect-ratios.md`, save at 300 DPI, and call
+   `plt.close()` after `savefig`.
 
 5. **VLM critique loop (optional, only if your host has vision)**:
    - Reload the rendered PNG as a multimodal input to your LLM.
@@ -134,10 +112,9 @@ finally caption.
 
 ## Conceptual diagrams
 
-For `plot_type == "diagram"`, try PaperBanana first (Option A above) — its
-Retriever finds reference diagrams from real published papers, giving the
-Planner strong visual examples to ground style and layout decisions.  If
-PaperBanana is unavailable, follow `references/diagram-patterns.md`.
+For `plot_type == "diagram"`, prefer PaperBanana when available — its
+Retriever grounds the Planner in real published paper diagrams.  If
+`PAPERBANANA_PATH` is unset, follow `references/diagram-patterns.md`.
 Patterns include block diagrams, system overviews, flowcharts, and
 algorithm-as-graph. The bundled helper:
 
