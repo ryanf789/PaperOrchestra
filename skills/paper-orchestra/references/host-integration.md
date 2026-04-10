@@ -118,6 +118,79 @@ a TODO marker if Intro/Related Work cannot be cited.
 
 ---
 
+## Known issues and workarounds
+
+### LaTeX compilation: figures appearing between references
+
+The most common final-layout defect is figures floating into or after the
+References section. This happens when the Experiments section has many floats
+and LaTeX cannot place them all before `\bibliography{}`.
+
+**Fix (already encoded in `section-writing-agent/SKILL.md`)**: the Section
+Writing Agent must emit `\clearpage` immediately before `\bibliographystyle{...}`.
+If you encounter this in a compiled PDF, edit `workspace/final/paper.tex`
+and add `\clearpage` before the bibliography line, then recompile.
+
+### LaTeX compilation: missing style files on basic TeX installations
+
+The NeurIPS 2024 template requires packages (`nicefrac`, `microtype`,
+`cleveref`, and the T1/Courier fonts via `\usepackage[T1]{fontenc}`) that are
+not included in minimal TeX Live distributions (e.g., `texlive-2025-basic`
+on macOS). If compilation fails with `File '*.sty' not found`:
+
+1. Install the full TeX Live scheme: `tlmgr install scheme-full` (requires
+   admin), or install individual packages: `tlmgr install cleveref nicefrac
+   microtype`.
+2. Alternatively, comment out the missing packages and replace:
+   - `\cref{fig:X}` → `Figure~\ref{fig:X}`
+   - `\cref{tab:Y}` → `Table~\ref{tab:Y}`
+   - `\texttt{...}` uses courier; if courier is missing, use `\textit{...}`
+   - Remove `\usepackage[T1]{fontenc}` and `\usepackage{url}` if Courier
+     TFM files are absent (symptom: `pcrr7t not loadable`).
+
+### citation_pool.json key format mismatch
+
+The Literature Review Agent may generate citation keys in its own format (e.g.,
+`lewis2020rag`) while `bibtex_format.py` generates canonical keys from author +
+year + first title word (e.g., `lewis2020retrievalaugmented`). Running
+`bibtex_format.py` after the Lit Review Agent will update the keys in the pool,
+but the already-written `intro_relwork.tex` and `refs.bib` will still use the
+old keys, causing citation coverage gate failures.
+
+**Fix**: after running `bibtex_format.py --pool ... --out ...`, run a key
+substitution pass over `intro_relwork.tex`:
+
+```python
+import json
+with open('workspace/citation_pool.json') as f:
+    pool = json.load(f)
+key_map = {p['key']: p['bibtex_key'] for p in pool['papers']}
+with open('workspace/drafts/intro_relwork.tex') as f:
+    content = f.read()
+for old, new in key_map.items():
+    content = content.replace('{' + old + '}', '{' + new + '}')
+with open('workspace/drafts/intro_relwork.tex', 'w') as f:
+    f.write(content)
+```
+
+Then rebuild `refs.bib` from the pool's `bibtex_key` fields before running
+the Section Writing Agent.
+
+### authors format in citation_pool.json
+
+If the Literature Review Agent writes authors as plain strings
+(`"authors": ["Alice Smith", "Bob Jones"]`), but `bibtex_format.py` expects
+dicts (`{"name": "Alice Smith"}`), bibtex_format.py will raise `AttributeError`.
+Fix by running a normalisation pass before `bibtex_format.py`:
+
+```python
+for p in pool['papers']:
+    if p.get('authors') and isinstance(p['authors'][0], str):
+        p['authors'] = [{'name': a} for a in p['authors']]
+```
+
+---
+
 ## Verifying your host integration
 
 Run the smoke test on the bundled example:

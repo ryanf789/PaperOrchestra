@@ -159,21 +159,41 @@ for the new iteration. (This is the "re-score after revision" call.)
 
 ### 5. Apply the accept/revert decision
 
+The calling loop must track `CONSECUTIVE_SMALL` (starts at 0) and pass it
+on each call so `score_delta.py` can detect the plateau:
+
 ```bash
 python skills/content-refinement-agent/scripts/score_delta.py \
     --prev workspace/refinement/iter<N-1>/score.json \
-    --curr workspace/refinement/iter<N>/score.json
+    --curr workspace/refinement/iter<N>/score.json \
+    --plateau-threshold 1.0 \
+    --plateau-streak 3 \
+    --consecutive-small $CONSECUTIVE_SMALL \
+    > workspace/refinement/iter<N>/delta.json
+
+EXIT=$?
+# Update streak for next iteration:
+CONSECUTIVE_SMALL=$(python3 -c "
+import json
+d = json.load(open('workspace/refinement/iter<N>/delta.json'))
+print(d['consecutive_small'])
+")
 ```
 
 Exit codes:
-- `0` — ACCEPT (overall improved or tied with non-negative net sub-axis)
+- `0` — ACCEPT (overall improved or tied with non-negative net sub-axis, no plateau)
 - `1` — REVERT (overall decreased)
 - `2` — REVERT (tied overall, but net sub-axis change negative)
+- `4` — HALT_PLATEAU (accepted but N consecutive iterations below threshold — stop early)
 
 Behavior:
 
-- **ACCEPT**: keep `iter<N>/paper.tex` as the new best. `prev_score ← curr_score`. Continue to iter N+1.
-- **REVERT**: copy `iter<N-1>/paper.tex` and `iter<N-1>/paper.pdf` back as the canonical, halt.
+- **ACCEPT (exit 0)**: keep `iter<N>/paper.tex` as the new best. Continue to iter N+1.
+- **REVERT (exit 1 or 2)**: copy `iter<N-1>/paper.tex` back as canonical, halt.
+- **HALT_PLATEAU (exit 4)**: keep current (it was accepted), but stop — further
+  iterations are unlikely to yield meaningful gains. In practice ~85% of
+  refinement gain comes in iteration 1; the plateau fires when subsequent
+  iterations improve by less than 1 point for 3 consecutive rounds.
 
 Always log the decision via `apply_worklog.py --decision ...`.
 
@@ -182,11 +202,10 @@ Always log the decision via `apply_worklog.py --decision ...`.
 Halt the loop when ANY of these is true:
 
 1. Iteration count reaches `ITER_CAP` (default 3).
-2. `score_delta.py` returned non-zero (REVERT).
+2. `score_delta.py` returned exit code 1 or 2 (REVERT).
 3. The simulated reviewer's `weaknesses` list is empty (no actionable
    feedback to apply).
-4. Three consecutive iterations all ACCEPT but with overall delta < 1 point
-   (diminishing returns; saves wall-time).
+4. `score_delta.py` returned exit code 4 (HALT_PLATEAU — plateau early-stop).
 
 ### 7. Promote the best snapshot
 

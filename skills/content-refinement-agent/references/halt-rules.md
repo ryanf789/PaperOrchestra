@@ -61,10 +61,37 @@ when ANY of these is true:
 2. **REVERT decision** from `score_delta.py` (exit code 1 or 2).
 3. **Empty weaknesses list.** If the simulated reviewer's `weaknesses`
    array is empty, there is nothing to fix — halt.
-4. **Diminishing returns.** Three consecutive ACCEPT_IMPROVED iterations
-   each with `overall_delta < 1.0` → halt to save wall-time. (Soft rule;
-   the paper does not specify it but it matches the cost budget of
-   ~5-7 LLM calls.)
+4. **Plateau early-stop (exit code 4).** `score_delta.py` returns
+   `HALT_PLATEAU` when `N` consecutive accepted iterations each have
+   `overall_delta < threshold`. Default: threshold=1.0 points, N=3.
+   Configurable via `--plateau-threshold` and `--plateau-streak`.
+
+   The calling loop must pass `--consecutive-small <count>` to
+   `score_delta.py` to track the streak across iterations:
+
+   ```bash
+   CONSECUTIVE_SMALL=0
+   for iter in 1 2 3 ...; do
+     # ... run refinement LLM call ...
+     python score_delta.py \
+         --prev iter$((iter-1))/score.json \
+         --curr iter${iter}/score.json \
+         --plateau-threshold 1.0 \
+         --plateau-streak 3 \
+         --consecutive-small $CONSECUTIVE_SMALL
+     EXIT=$?
+     # Update streak counter from script output
+     CONSECUTIVE_SMALL=$(python -c "import json,sys; \
+         d=json.loads(open('iter${iter}/delta.json').read()); \
+         print(d['consecutive_small'])")
+     if [ $EXIT -ne 0 ]; then break; fi
+   done
+   ```
+
+   **Why this matters**: in practice, ~85% of the refinement gain comes
+   in the first iteration (scores jump 5-8 points). Subsequent iterations
+   typically improve by <1 point. Without early-stop, the loop runs 3 full
+   LLM calls even when iterations 2 and 3 contribute near-zero value.
 
 ## Promoting the best snapshot
 

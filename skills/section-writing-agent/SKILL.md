@@ -30,6 +30,11 @@ global coherence across sections.
 - `workspace/figures/` — the actual PNG files from Step 2 (used as
   multimodal vision input!)
 - `workspace/figures/captions.json` — caption text per figure_id
+- `workspace/tex_profile.json` — TeX package availability flags (written by
+  `check_tex_packages.py` at Step 0). **Read this before generating any
+  LaTeX.** It tells you which packages are installed so you select the right
+  cross-reference pattern, font packages, etc. before you write — not after
+  you try to compile.
 
 ## Output
 
@@ -37,6 +42,21 @@ global coherence across sections.
   filled. The Step 5 Refinement Agent will iterate on this file.
 
 ## How to do it
+
+### 0.5. Read tex_profile.json and select LaTeX patterns
+
+Before composing the prompt, read `workspace/tex_profile.json` and apply
+these rules to every LaTeX choice in the generated paper:
+
+| Profile flag | True → use | False → use instead |
+|---|---|---|
+| `use_cleveref` | `\cref{fig:X}`, `\cref{tab:Y}` | `Figure~\ref{fig:X}`, `Table~\ref{tab:Y}` |
+| `use_nicefrac` | `\nicefrac{a}{b}` | `$a/b$` |
+| `use_microtype` | `\usepackage{microtype}` | omit the line |
+| `use_t1_fontenc` | `\usepackage[T1]{fontenc}` | omit the line |
+
+If `tex_profile.json` does not exist (old workspace), default to the safe
+fallback column (no cleveref, no nicefrac, no microtype, no T1 fontenc).
 
 ### 1. Pre-extract metrics from the experimental log
 
@@ -183,6 +203,16 @@ host agent MUST honor them on the writing call:
   closed with `\end{figure*}`, not `\end{figure}`).
 - DO NOT change `\usepackage[capitalize]{cleveref}` to
   `\usepackage[capitalize]{cleverref}` — there is no `cleverref.sty`.
+- **Always emit `\clearpage` immediately before `\bibliographystyle{...}`.**
+  Without it, figures deferred by LaTeX's float algorithm will appear inside
+  or after the References section — a hard-to-spot layout defect that only
+  shows up in the compiled PDF. `\clearpage` forces all pending floats to be
+  output before the bibliography starts. See
+  `references/latex-table-patterns.md` for details.
+- **Cross-references**: prefer `Figure~\ref{fig:X}` and `Table~\ref{tab:Y}`
+  over bare `\ref{fig:X}`. This is necessary when `cleveref` is unavailable
+  and produces readable prose in all cases. Use `\cref{...}` only when
+  `cleveref.sty` is confirmed present.
 
 ### Output format
 

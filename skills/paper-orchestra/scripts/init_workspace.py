@@ -20,6 +20,7 @@ WORKSPACE_DIRS = [
     "drafts",
     "refinement",
     "final",
+    "cache",          # S2 verification cache (s2_cache.json written here)
 ]
 
 INPUTS_README = textwrap.dedent("""\

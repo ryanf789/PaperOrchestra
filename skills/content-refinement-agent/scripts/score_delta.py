@@ -11,11 +11,20 @@ Encodes the halt rules from arXiv:2604.05018 §4 Step 5:
   - REVERT (tied_negative_subaxis) if curr.overall == prev.overall AND
             net sub-axis delta < 0
 
+Additionally encodes the plateau early-stop rule (not in the original paper
+but added to match its cost budget of ~5-7 LLM calls):
+
+  - HALT_PLATEAU if the improvement is accepted but overall_delta is below
+    --plateau-threshold for --plateau-streak or more consecutive iterations.
+    Exit code 4.  The loop should stop — further iterations are unlikely to
+    yield meaningful gains.
+
 Exit codes:
-    0  ACCEPT (improved or tied non-negative)
+    0  ACCEPT (improved or tied non-negative, and no plateau)
     1  REVERT (overall decreased)
     2  REVERT (tied with negative sub-axis delta)
     3  argument or input error
+    4  HALT_PLATEAU (accepted but diminishing returns detected)
 
 Score JSON shape (see references/reviewer-rubric.md):
     {
@@ -33,6 +42,8 @@ Score JSON shape (see references/reviewer-rubric.md):
 
 Usage:
     python score_delta.py --prev iter0/score.json --curr iter1/score.json
+    python score_delta.py --prev iter2/score.json --curr iter3/score.json \\
+        --plateau-threshold 1.0 --plateau-streak 2 --consecutive-small 2
 """
 import argparse
 import json
@@ -47,6 +58,9 @@ AXES = [
     "academic_style",
 ]
 
+DEFAULT_PLATEAU_THRESHOLD = 1.0  # points
+DEFAULT_PLATEAU_STREAK = 3       # consecutive iterations below threshold → halt
+
 
 def load(path: str) -> dict:
     with open(path) as f:
@@ -55,8 +69,26 @@ def load(path: str) -> dict:
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--prev", required=True)
-    p.add_argument("--curr", required=True)
+    p.add_argument("--prev", required=True, help="Score JSON from previous accepted iteration")
+    p.add_argument("--curr", required=True, help="Score JSON from just-completed iteration")
+    p.add_argument(
+        "--plateau-threshold", type=float, default=DEFAULT_PLATEAU_THRESHOLD,
+        metavar="POINTS",
+        help=f"Minimum overall_delta to not count as a 'small' improvement "
+             f"(default: {DEFAULT_PLATEAU_THRESHOLD})",
+    )
+    p.add_argument(
+        "--plateau-streak", type=int, default=DEFAULT_PLATEAU_STREAK,
+        metavar="N",
+        help=f"Number of consecutive small improvements before HALT_PLATEAU "
+             f"(default: {DEFAULT_PLATEAU_STREAK})",
+    )
+    p.add_argument(
+        "--consecutive-small", type=int, default=0,
+        metavar="N",
+        help="Number of consecutive small-delta accepted iterations so far "
+             "(maintained by the calling loop; default: 0)",
+    )
     args = p.parse_args()
 
     try:
@@ -79,6 +111,7 @@ def main() -> int:
         deltas[ax] = cs - ps
     net_subaxis = sum(deltas.values())
 
+    # --- Primary accept/revert decision ---
     if c_overall > p_overall:
         decision = "ACCEPT_IMPROVED"
         exit_code = 0
@@ -93,14 +126,29 @@ def main() -> int:
         decision = "REVERT_OVERALL_DECREASED"
         exit_code = 1
 
+    # --- Plateau early-stop (only applies to accepted iterations) ---
+    is_small_delta = overall_delta < args.plateau_threshold
+    new_consecutive_small = (args.consecutive_small + 1) if is_small_delta else 0
+    plateau_triggered = False
+
+    if exit_code == 0 and new_consecutive_small >= args.plateau_streak:
+        decision = "HALT_PLATEAU"
+        exit_code = 4
+        plateau_triggered = True
+
     out = {
-        "decision":      decision,
-        "exit_code":     exit_code,
-        "overall_prev":  p_overall,
-        "overall_curr":  c_overall,
-        "overall_delta": overall_delta,
-        "subaxis_deltas": deltas,
-        "net_subaxis":   net_subaxis,
+        "decision":            decision,
+        "exit_code":           exit_code,
+        "overall_prev":        p_overall,
+        "overall_curr":        c_overall,
+        "overall_delta":       overall_delta,
+        "subaxis_deltas":      deltas,
+        "net_subaxis":         net_subaxis,
+        "is_small_delta":      is_small_delta,
+        "consecutive_small":   new_consecutive_small,
+        "plateau_threshold":   args.plateau_threshold,
+        "plateau_streak":      args.plateau_streak,
+        "plateau_triggered":   plateau_triggered,
     }
     print(json.dumps(out, indent=2))
     return exit_code

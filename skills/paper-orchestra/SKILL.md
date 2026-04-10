@@ -73,6 +73,18 @@ python skills/paper-orchestra/scripts/validate_inputs.py --workspace workspace/
 
 If validation fails, stop and tell the user what's missing.
 
+**Also probe the TeX installation** (once per workspace, result cached):
+
+```bash
+python skills/paper-orchestra/scripts/check_tex_packages.py \
+    --out workspace/tex_profile.json
+```
+
+The Section Writing Agent reads `tex_profile.json` to decide which LaTeX
+patterns to use (e.g., `Figure~\ref{}` vs `\cref{}`, whether to include
+`\usepackage{microtype}`, etc.). This eliminates compile-time package
+failures that previously required iterative manual edits.
+
 ### 1. Outline (Step 1 — 1 LLM call)
 
 Load `skills/outline-agent/SKILL.md` and follow it. Output: `workspace/outline.json`.

@@ -39,21 +39,26 @@ PHASE 1 — Parallel Candidate Discovery
      - Use the host's web search tool to discover up to ~10 candidate papers.
      - Run up to 10 discovery queries in parallel (host-permitting).
      - Collect (title, snippet, url) tuples — no verification yet.
+   → PRE-DEDUP before Phase 2 (see Step 1.5 below)
 
-PHASE 2 — Sequential Citation Verification (1 QPS)
-   For each candidate, sequentially:
+PHASE 2 — Sequential Citation Verification (1 QPS, with cache)
+   For each candidate (after pre-dedup), sequentially:
+     0. Check s2_cache.json first (scripts/s2_cache.py --check).
+        If HIT: use cached response, skip live S2 call. No throttle needed.
+        If MISS: proceed with live request below.
      1. Query Semantic Scholar by title:
           GET https://api.semanticscholar.org/graph/v1/paper/search?query=<title>
               &fields=title,abstract,year,authors,venue,externalIds&limit=5
-        (Public endpoint, no key. Throttle to 1 QPS.)
-     2. Pick the top hit. Check Levenshtein title ratio against the original
+        (Public endpoint, no key. Throttle to 1 QPS for live requests only.)
+     2. Store the S2 response in cache: s2_cache.py --store.
+     3. Pick the top hit. Check Levenshtein title ratio against the original
         candidate title. If ratio < 70: discard.
-     3. Bonus: if year and venue exactly align with hints, add a +5 point
+     4. Bonus: if year and venue exactly align with hints, add a +5 point
         match-quality bonus.
-     4. Require: abstract is non-empty.
-     5. Require: paper.year (or month if known) strictly predates cutoff_date.
+     5. Require: abstract is non-empty.
+     6. Require: paper.year (or month if known) strictly predates cutoff_date.
         Months default to day-1: e.g., "October 2024" → 2024-10-01.
-     6. If all checks pass, add to verified pool.
+     7. If all checks pass, add to verified pool.
    After all candidates are verified, dedup by Semantic Scholar paperId.
 ```
 
@@ -115,17 +120,52 @@ Combine all discovered candidates into a single working list. Tag each with
 the originating query ID so you can later attribute it to "intro" vs
 "related_work[i]".
 
-### 2. Phase 2: Sequential Verification via Semantic Scholar
+### 1.5. Pre-dedup before Phase 2
 
-For each candidate, in **sequential** order (1 QPS), use your host's URL
-fetch tool to GET:
+**Always run this before starting Phase 2.** Multiple search queries routinely
+return the same papers (e.g., "Attention is All You Need" appears in almost
+every NLP discovery query). Verifying duplicates wastes 30-40% of S2 quota
+at 1 QPS.
 
+```bash
+python skills/literature-review-agent/scripts/pre_dedup_candidates.py \
+    --in workspace/raw_candidates.json \
+    --out workspace/deduped_candidates.json
+# Prints: "150 candidates → 97 unique (53 duplicates removed)"
+```
+
+Use `workspace/deduped_candidates.json` as input to Phase 2.
+
+### 2. Phase 2: Sequential Verification via Semantic Scholar (with cache)
+
+For each candidate in `deduped_candidates.json`, in **sequential** order:
+
+**Step A — check cache first** (no S2 call, no throttle needed):
+```bash
+python skills/literature-review-agent/scripts/s2_cache.py \
+    --cache workspace/cache/s2_cache.json \
+    --check "<candidate title>"
+# exit 0 + prints JSON → use cached response, skip Step B
+# exit 1 → proceed to Step B
+```
+
+**Step B — live S2 request** (cache MISS only, throttle to 1 QPS):
+
+Use your host's URL fetch tool to GET:
 ```
 https://api.semanticscholar.org/graph/v1/paper/search?query=<URL-encoded title>&limit=5&fields=title,abstract,year,authors,venue,externalIds
 ```
 
 This is a **public, unauthenticated endpoint** — no API key. Be polite: ≤1
-request per second. If you exceed this you'll get HTTP 429.
+request per second for live requests. Cache hits are free.
+
+**Step C — store in cache** (after every successful live request):
+```bash
+python skills/literature-review-agent/scripts/s2_cache.py \
+    --cache workspace/cache/s2_cache.json \
+    --store "<candidate title>" \
+    --response '<full S2 JSON response>'
+```
 
 For the top hit:
 
@@ -167,6 +207,15 @@ The script also computes and writes `min_cite_paper_count` =
 `floor(0.9 * len(papers))` — the minimum number of papers the writing step
 must cite (the paper's ≥90% integration rule, App. D.3).
 
+**Immediately after dedupe_by_id.py**, validate and auto-fix the pool schema:
+
+```bash
+python skills/literature-review-agent/scripts/validate_pool.py \
+    --pool workspace/citation_pool.json --fix
+# Catches and fixes authors-as-strings, reports missing required fields.
+# Must pass before proceeding to Step 4.
+```
+
 ### 4. Build the BibTeX file
 
 ```bash
@@ -178,7 +227,26 @@ python skills/literature-review-agent/scripts/bibtex_format.py \
 The script generates citation keys deterministically from `firstauthor + year
 + first significant word of title` (e.g., `vaswani2017attention`). It writes
 out only `@article` / `@inproceedings` / `@misc` entries — never invents
-fields.
+fields. It also writes the canonical `bibtex_key` back into each paper record
+in `citation_pool.json`.
+
+**Immediately after bibtex_format.py**, sync keys in `intro_relwork.tex`:
+
+```bash
+python skills/literature-review-agent/scripts/sync_keys.py \
+    --pool workspace/citation_pool.json \
+    --tex  workspace/drafts/intro_relwork.tex \
+    --inplace
+# Replaces every \cite{agent_key} with \cite{canonical_bibtex_key}.
+# Eliminates citation_coverage gate failures caused by key mismatch.
+```
+
+These two steps replace the manual Python snippets that were previously
+required. The pipeline is now:
+
+```
+dedupe_by_id → validate_pool --fix → bibtex_format → sync_keys
+```
 
 ### 5. Draft Introduction + Related Work
 
@@ -260,9 +328,13 @@ If your host has no web search tool, switch to degraded mode:
 - `references/citation-density-rule.md` — the ≥90% integration rule
 - `references/s2-api-cookbook.md` — Semantic Scholar URLs, fields, rate limits
 - `references/exa-search-cookbook.md` — optional Exa backend for Phase 1 (research-paper-focused web search)
+- `scripts/pre_dedup_candidates.py` — **NEW** dedup Phase 1 candidates before Phase 2 (saves 30-40% S2 quota)
+- `scripts/s2_cache.py` — **NEW** persistent S2 response cache (eliminates re-verification on re-runs)
+- `scripts/validate_pool.py` — **NEW** validate & auto-fix citation_pool.json schema (authors format)
+- `scripts/sync_keys.py` — **NEW** sync cite keys in .tex with canonical bibtex_keys after bibtex_format.py
 - `scripts/levenshtein_match.py` — fuzzy title match (ratio > 70)
 - `scripts/check_cutoff.py` — date cmp w/ month → day-1 default
-- `scripts/dedupe_by_id.py` — dedup by S2 paperId
+- `scripts/dedupe_by_id.py` — dedup verified pool by S2 paperId
 - `scripts/bibtex_format.py` — build refs.bib from JSON pool
 - `scripts/citation_coverage.py` — ≥90% citation coverage gate
 - `scripts/exa_search.py` — optional Exa Phase 1 backend (reads `EXA_API_KEY` from env)

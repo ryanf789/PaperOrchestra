@@ -132,3 +132,46 @@ The closing `\end{table*}` must match the opening `\begin{table*}`. The
 | Misaligned decimals | Use `S[table-format=2.2]` from `siunitx` if available, else right-align with `r`. |
 | Table after Conclusion | Move it before. The prompt mandates this. |
 | Hallucinated values | Cross-check against `extract_metrics.py` output. |
+
+## Figures floating into or after the References section
+
+**This is the most common final-layout bug.** When many figures appear in the
+Experiments section and the bibliography is near the end, LaTeX cannot place all
+floats in the text body and defers them past `\bibliography`.
+
+**Fix**: always emit `\clearpage` immediately before `\bibliographystyle{...}`:
+
+```latex
+% Flush all pending floats before the bibliography
+\clearpage
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+```
+
+The `\clearpage` forces LaTeX to output every deferred float on their own pages
+before starting the reference list. Without it, figures that could not fit in the
+Experiments section will appear between the References heading and the reference
+entries, or after the last reference.
+
+## Cross-referencing without cleveref
+
+When the conference template uses `\usepackage[capitalize]{cleveref}`, the
+Section Writing Agent should produce `\cref{fig:X}` and `\cref{tab:Y}`.
+However, if `cleveref` is stripped (e.g., due to a minimal TeX installation),
+bare `\ref{}` produces only the number with no "Figure" or "Table" prefix,
+which reads as isolated numbers in the prose.
+
+**Pattern to use when `cleveref` is absent**:
+
+```latex
+Figure~\ref{fig:overview}   % tilde prevents line break before number
+Table~\ref{tab:main-results}
+```
+
+Never write just `\ref{fig:overview}` without a prefix; readers will see "...see 3."
+
+The host agent must check whether `cleveref.sty` is available in the TeX
+installation before choosing `\cref{}` vs `Figure~\ref{}`. A safe default is
+to always use the `Figure~\ref{}` form; it degrades gracefully and works
+everywhere.
